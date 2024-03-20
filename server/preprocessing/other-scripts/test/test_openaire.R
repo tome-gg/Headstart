@@ -9,7 +9,7 @@ setwd(wd) #Don't forget to set your working directory
 
 # query: project acryonm
 # params: grant_id and funding_stream
-query <- "GRINDOOR" #args[2]
+query <- "openaire2020" #args[2]
 service <- "openaire"
 params <- NULL
 params_file <- "test/params_openaire.json"
@@ -41,8 +41,7 @@ if ('lang_id' %in% names(params)){
     lang_id <- 'all'
 }
 
-LANGUAGE <- get_service_lang(lang_id, valid_langs, service)
-ADDITIONAL_STOP_WORDS = LANGUAGE$name
+
 .GlobalEnv$VIS_ID <- params$vis_id
 
 failed <- list(params=params)
@@ -58,9 +57,7 @@ if(exists('input_data')) {
   tryCatch({
   output_json = vis_layout(input_data$text, input_data$metadata,
                            service,
-                           max_clusters=MAX_CLUSTERS,
-                           lang=LANGUAGE$name,
-                           add_stop_words=ADDITIONAL_STOP_WORDS, list_size = params$list_size)
+                           max_clusters=MAX_CLUSTERS, list_size = params$list_size)
   }, error=function(err){
   tslog$error(gsub("\n", " ", paste("Processing failed", query, paste(params, collapse=" "), err, sep="||")))
     failed$query <<- query
@@ -74,4 +71,5 @@ if (!exists('output_json')) {
   output_json <- enrich_output_json(output_json)
 }
 
-print(output_json)
+#print(output_json)
+output <- fromJSON(output_json)

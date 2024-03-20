@@ -65,7 +65,6 @@ get_papers <- function(query, params,
 
   if (!is.null(exact_query) && exact_query != '') {
     base_query <- paste(paste0("(",exact_query,")"), date_string, document_types, collapse=" ")
-    base_query <- paste(paste0("(",exact_query,")"), date_string, document_types, collapse=" ")
   } else {
     base_query <- paste(date_string, document_types, collapse=" ")
   }
@@ -73,7 +72,7 @@ get_papers <- function(query, params,
   # apply language filter if parameter is set
   lang_id <- params$lang_id
   if (!is.null(lang_id) && lang_id != "all-lang") {
-    lang_query <- paste0("dclang:", lang_id)
+    lang_query = paste("dclang:", "(", paste(params$lang_id, collapse=" OR "), ")", sep="")
     base_query <- paste(base_query, lang_query)
   }
     
@@ -94,11 +93,24 @@ get_papers <- function(query, params,
     non_public = FALSE
   }
 
+  cc <- params$custom_clustering
+  if (!is.null(cc)) {
+    if (cc %in% names(fieldmapper)) {
+      # this is the generic case for existing metadata
+      custom_clustering_query <- paste(fieldmapper[[cc]], ":", "*", sep="")
+      base_query <- paste(base_query, custom_clustering_query)
+    } else {
+      # this is the speciality case for custom clustering on annotations
+      custom_clustering_query <- paste("dcsubject:", cc, "*", sep="")
+      base_query <- paste(base_query, custom_clustering_query)
+      custom_clustering_query <- paste('textus:', '"', cc, ':"', sep="")
+      base_query <- paste(base_query, custom_clustering_query)
+      custom_clustering_query <- paste(cc, ':*', sep="")
+      base_query <- paste(base_query, custom_clustering_query)
+    }
+  }
+
   blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "BASE query:", base_query))
-  blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "Sort by:", sortby_string))
-  blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "Min descsize:", min_descsize))
-  blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "Target:", repo))
-  blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "Collection:", coll))
 
   # execute search
   offset = 0
@@ -120,9 +132,15 @@ get_papers <- function(query, params,
   metadata <- sanitize_abstract(metadata)
   metadata <- mark_duplicates(metadata)
   metadata$has_dataset <- unlist(lapply(metadata$resulttype, function(x) "Dataset" %in% x))
-  req_limit <- 9
   
+  req_limit <- 9
   r <- 0
+  # check if custom clustering annotation param is in metadata
+  if (!is.null(cc)) {
+    if (!(cc %in% names(fieldmapper))) {
+      has_custom_clustering_annotation <- unlist(lapply(metadata$subject_orig, function(x) grepl(paste0(cc, ":"), x, fixed=TRUE)))
+      metadata <- metadata[has_custom_clustering_annotation,]
+  }}
   while (nrow(metadata) - sum(metadata$is_duplicate) < limit && attr(res_raw, "numFound") > offset+120 && r < req_limit) {
     offset <- offset+120
     res_raw <- get_raw_data(limit,
@@ -141,17 +159,28 @@ get_papers <- function(query, params,
     metadata <- sanitize_abstract(metadata)
     metadata <- mark_duplicates(metadata)
     metadata$has_dataset <- unlist(lapply(metadata$resulttype, function(x) "Dataset" %in% x))
+    # check if custom clustering annotation param is in metadata
+    if (!is.null(cc)) {
+      if (!(cc %in% names(fieldmapper))) {
+        has_custom_clustering_annotation <- unlist(lapply(metadata$subject_orig, function(x) grepl(paste0(cc, ":"), x, fixed=TRUE)))
+        metadata <- metadata[has_custom_clustering_annotation,]
+    }}
     r <- r+1
   }
+  # check if custom clustering annotation param is in metadata
+  if (!is.null(cc)) {
+    if (!(cc %in% names(fieldmapper))) {
+      has_custom_clustering_annotation <- unlist(lapply(metadata$subject_orig, function(x) grepl(paste0(cc, ":"), x, fixed=TRUE)))
+      metadata <- metadata[has_custom_clustering_annotation,]
+  }}
   blog$info(paste("vis_id:", .GlobalEnv$VIS_ID, "Deduplication retrieval requests:", r))
 
   metadata <- unique(metadata, by = "id")
-  text = data.frame(matrix(nrow=length(metadata$id)))
-  text$id = metadata$id
-  # Add all keywords, including classification to text
-  text$content = paste(metadata$title, metadata$paper_abstract,
-                       metadata$subject_orig, metadata$published_in, metadata$authors,
-                       sep=" ")
+  # Add all keywords, including classification to text content for clustering
+  text <- data.frame(id = metadata$id,
+                     content = paste(metadata$title, metadata$paper_abstract,
+                                     metadata$subject_orig, metadata$published_in, metadata$authors,
+                                     sep=" "))
 
 
   input_data=list("metadata" = metadata, "text"=text)
@@ -170,7 +199,7 @@ etl <- function(res, repo, non_public) {
   metadata$relation = check_metadata(res$dcrelation)
   metadata$identifier = check_metadata(res$dcidentifier)
   metadata$title = check_metadata(res$dctitle)
-  metadata$title = str_replace(metadata$title, " ...$", "")
+  metadata$title = gsub(" \\.\\.\\.$", "", metadata$title)
   metadata$paper_abstract = check_metadata(res$dcdescription)
   metadata$published_in = check_metadata(res$dcsource)
   metadata$year = check_metadata(res$dcdate)
@@ -178,10 +207,6 @@ etl <- function(res, repo, non_public) {
   subject_all = check_metadata(res$dcsubject)
 
   metadata$subject_orig = subject_all
-
-  #subject = ifelse(subject !="", paste(unique(strsplit(subject, "; ")), "; "),"")
-
-  #pattern <- paste0("(;? ?|^)", paste0(triple_disciplines, collapse="($|; )|(;? ?|^)"), "($|; )")
 
   subject_cleaned = gsub("DOAJ:[^;]*(;|$)?", "", subject_all) # remove DOAJ classification
   subject_cleaned = gsub("/dk/atira[^;]*(;|$)?", "", subject_cleaned) # remove atira classification
@@ -192,21 +217,37 @@ etl <- function(res, repo, non_public) {
   subject_cleaned = gsub("[^\\(;]+\\(all\\)(;|$)?", "", subject_cleaned) # remove general subjects
   subject_cleaned = gsub("[^:;]+ ?:: ?[^;]+(;|$)?", "", subject_cleaned) #remove classification with separator ::
   subject_cleaned = gsub("[^\\[;]+\\[[A-Z,0-9]+\\](;|$)?", "", subject_cleaned) # remove WHO classification
+  subject_cleaned = gsub("Info:\\w+-(\\w+\\/)+", "", subject_cleaned) # remove Info:eu-repo/classification/
+  subject_cleaned = gsub("([A-Za-z]+:[A-Za-z0-9 \\/\\.-]+);?", "", subject_cleaned, perl=TRUE) # clean up annotations with prefix e.g. theme:annotation
+  if (!is.null(params$vis_type) && params$vis_type == "timeline") {
+    subject_cleaned = gsub("FOS ", "", subject_cleaned) # remove FOS classification tag, but keep classifcation name
+    arxiv_classification_string = "(cs|econ|eess|math|astro-ph|nlin|q-bio|q-fin|stat)\\.[A-Z]{2}|cond-mat\\.[a-z\\-]+|hep-(ex|lat|ph|th)|math-ph|nucl-(ex|th)|physics\\.[a-z\\-]+|(astro-ph|gr-qc|quant-ph|cond-mat)"
+    subject_cleaned = gsub(arxiv_classification_string, "", subject_cleaned, perl=TRUE) # remove arXiv classification short code, but keep classifcation name
+  } else {
+    subject_cleaned = gsub("FOS [A-Za-z ]+", "", subject_cleaned) # remove FOS classifications (Fields of Science and Technology)
+    arxiv_classification_string = "(([A-Za-z ]+ )?cond-mat\\.[a-z\\-]+)|([\\w ]+ )?(cs|econ|eess|math|astro-ph|nlin|q-bio|q-fin|stat)\\.[A-Z]{2}|cond-mat\\.[a-z\\-]+|hep-(ex|lat|ph|th)|math-ph|nucl-(ex|th)|physics\\.[a-z\\-]+|([\\w ]+ )(astro-ph|gr-qc|quant-ph|cond-mat)"
+    subject_cleaned = gsub(arxiv_classification_string, "", subject_cleaned, perl=TRUE) # remove arXiv classification, except on streamgraphs    
+  }
+  subject_cleaned = gsub("([A-Za-z]+:[A-Za-z0-9 \\/\\.]+);?", "", subject_cleaned, perl=TRUE) # clean up annotations with prefix e.g. theme:annotation
+  subject_cleaned = gsub("(wikidata)?\\.org/entity/[qQ]([\\d]+)?", "", subject_cleaned) # remove wikidata classification
   subject_cleaned = gsub("</keyword><keyword>", "", subject_cleaned) # remove </keyword><keyword>
   subject_cleaned = gsub("\\[No keyword\\]", "", subject_cleaned)
   subject_cleaned = gsub("\\[[^\\[]+\\][^\\;]+(;|$)?", "", subject_cleaned) # remove classification
   subject_cleaned = gsub("[0-9]{2,} [A-Z]+[^;]*(;|$)?", "", subject_cleaned) #remove classification
   subject_cleaned = gsub(" -- ", "; ", subject_cleaned) #replace inconsistent keyword separation
+  subject_cleaned = gsub("[-]{2,}", "; ", subject_cleaned) #replace inconsistent keyword separation
+  subject_cleaned = gsub("[A-Z]\\.\\d\\.\\d+", "", subject_cleaned) #replace inconsistent keyword separation
   subject_cleaned = gsub(" \\(  ", "; ", subject_cleaned) #replace inconsistent keyword separation
   subject_cleaned = gsub("(\\w* \\w*(\\.)( \\w* \\w*)?)", "; ", subject_cleaned) # remove overly broad keywords separated by .
   subject_cleaned = gsub("\\. ", "; ", subject_cleaned) # replace inconsistent keyword separation
   subject_cleaned = gsub(" ?\\d[:?-?]?(\\d+.)+", "", subject_cleaned) # replace residuals like 5:621.313.323 or '5-76.95'
-  subject_cleaned = gsub("\\w+:\\w+-(\\w+\\/)+", "", subject_cleaned) # replace residuals like Info:eu-repo/classification/
-  #subject_cleaned = gsub(pattern=pattern, replacement="", subject_cleaned) # remove TRIPLE discipline classification codes
+  subject_cleaned = gsub(": ", "", subject_cleaned) # clean up keyword separation
   subject_cleaned = gsub("^; $", "", subject_cleaned) # clean up keyword separation
+  subject_cleaned = gsub(";+", ";", subject_cleaned) # clean up keyword separation
+  subject_cleaned = gsub(",+", ",", subject_cleaned) # clean up keyword separation
   subject_cleaned = gsub(",", ", ", subject_cleaned) # clean up keyword separation
   subject_cleaned = gsub("\\s+", " ", subject_cleaned) # clean up keyword separation
-
+  subject_cleaned = stringi::stri_trim(subject_cleaned) # clean up keyword separation
   metadata$subject = subject_cleaned
 
   metadata$authors = check_metadata(res$dccreator)
@@ -216,13 +257,13 @@ etl <- function(res, repo, non_public) {
   metadata$url = metadata$id
   metadata$relevance = c(nrow(metadata):1)
   metadata$resulttype = lapply(res$dctypenorm, decode_dctypenorm)
-  metadata$dctype = check_metadata(res$dctype)
-  metadata$dctypenorm = check_metadata(res$dctypenorm)
+  metadata$type = check_metadata(res$dctype)
+  metadata$typenorm = check_metadata(res$dctypenorm)
   metadata$doi = unlist(lapply(metadata$link, find_dois))
-  metadata$dclang = check_metadata(res$dclang)
-  metadata$dclanguage = check_metadata(res$dclanguage)
+  metadata$lang = check_metadata(res$dclang)
+  metadata$language = check_metadata(res$dclanguage)
   metadata$content_provider = check_metadata(res$dcprovider)
-  metadata$dccoverage = check_metadata(res$dccoverage)
+  metadata$coverage = check_metadata(res$dccoverage)
   if(repo=="fttriple" && non_public==TRUE) {
     metadata$content_provider <- "GoTriple"
   }
@@ -299,57 +340,6 @@ decode_dctypenorm <- function(dctypestring) {
   return(typecodes)
 }
 
-valid_langs <- list(
-    'afr'='afrikaans',
-    'akk'='akkadian',
-    'ara'='arabic',
-    'baq'='basque',
-    'bel'='belarusian',
-    'chi'='chinese',
-    'cze'='czech',
-    'dan'='danish',
-    'dut'='dutch',
-    'eng'='english',
-    'est'='estonian',
-    'fin'='finnish',
-    'fre'='french',
-    'geo'='georgian',
-    'ger'='german',
-    'gle'='irish',
-    'glg'='galician',
-    'grc'='greek',
-    'gre'='greek',
-    'heb'='hebrew',
-    'hrv'='croatian',
-    'hun'='hungarian',
-    'ice'='icelandic',
-    'ind'='indonesian',
-    'ita'='italian',
-    'jpn'='japanese',
-    'kor'='korean',
-    'lat'='latin',
-    'lit'='lithuanian',
-    'nau'='nauru',
-    'nob'='norwegian',
-    'nor'='norwegian',
-    'ota'='turkish',
-    'per'='persian',
-    'pol'='polish',
-    'por'='portuguese',
-    'rum'='romanian',
-    'rus'='russian',
-    'slo'='slovak',
-    'slv'='slovenian',
-    'spa'='spanish',
-    'srp'='serbian',
-    'sux'='sumerian',
-    'swe'='swedish',
-    'tha'='thai',
-    'tur'='turkish',
-    'ukr'='ukrainian',
-    'vie'='vietnamese'
-)
-
 dctypenorm_decoder <- list(
   "4"="Audio",
   "11"="Book",
@@ -377,4 +367,27 @@ dctypenorm_decoder <- list(
   "181"="Thesis: bachelor",
   "183"="Thesis: doctoral and postdoctoral",
   "182"="Thesis: master"
+)
+
+fieldmapper <- list(
+  "relation"="dcrelation",
+  "identifier"="identifier",
+  "title"="dctitle",
+  "paper_abstract"="dcdescription",
+  "published_in"="dcsource",
+  "year"="dcdate",
+  "subject"="dcsubject",
+  "authors"="dccreator",
+  "link"="dclink",
+  "oa_state"="dcoa",
+  "url"="dcdocid",
+  "relevance"="relevance",
+  "resulttype"="dctypenorm",
+  "type"="dctype",
+  "typenorm"="dctypenorm",
+  "doi"="doi",
+  "lang"="dclang",
+  "language"="dclanguage",
+  "content_provider"="dcprovider",
+  "coverage"="dccoverage"
 )

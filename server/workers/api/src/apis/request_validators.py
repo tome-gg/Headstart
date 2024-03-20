@@ -15,7 +15,7 @@ class SearchParamSchema(Schema):
     year_range = fields.Str()
     today = fields.Str()
     language = fields.Str()
-    lang_id = fields.Str()
+    lang_id = fields.List(fields.Str())
     time_range = fields.Str()
     document_types = fields.List(fields.Str())
     article_types = fields.List(fields.Str())
@@ -32,6 +32,8 @@ class SearchParamSchema(Schema):
     repo_name = fields.Str()
     coll = fields.Str()
     list_size = fields.Int()
+    custom_title = fields.Str()
+    custom_clustering = fields.Str()
 
 
     @pre_load
@@ -57,6 +59,15 @@ class SearchParamSchema(Schema):
             return in_data
         except Exception:
             return in_data
+
+    @pre_load
+    def lang_id_empty_fallback(self, in_data, **kwargs):
+        lang_id = in_data.get("lang_id")
+        if lang_id:
+            lang_id = list(filter(lambda x: x != "", lang_id))
+            if len(lang_id) == 0:
+                in_data["lang_id"] = ["all-lang"]
+        return in_data
 
     @validates('from_')
     def is_not_in_future(self, date):

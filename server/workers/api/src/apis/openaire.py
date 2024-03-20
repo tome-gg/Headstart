@@ -61,8 +61,8 @@ class Search(Resource):
         openaire_ns.logger.debug(d)
         redis_store.rpush("openaire", json.dumps(d))
         q_len = redis_store.llen("openaire")
-        openaire_ns.logger.info("Queue length: %s %d %s" %("openaire", q_len, k))
-        result = get_key(redis_store, k)
+        openaire_ns.logger.debug("Queue length: %s %d %s" %("openaire", q_len, k))
+        result = get_key(redis_store, k, 300)
         try:
             headers = {}
             if request.headers["Accept"] == "application/json":

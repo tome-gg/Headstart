@@ -41,6 +41,10 @@ if (!is.null(params$vis_type)) {
     vis_type <- 'overview'
 }
 
+if ("q_advanced" %in% names(params)) {
+  params$q_advanced <- sanitize_query(params$q_advanced)$sanitized_query
+}
+
 .GlobalEnv$VIS_ID <- params$vis_id
 taxonomy_separator = NULL
 limit = 100
@@ -62,8 +66,6 @@ switch(service,
 )
 
 MAX_CLUSTERS = 15
-LANGUAGE <- get_service_lang(lang_id, valid_langs, service)
-ADDITIONAL_STOP_WORDS = LANGUAGE$name
 
 failed <- list(params=params)
 tryCatch({
@@ -79,8 +81,7 @@ if(exists('input_data')) {
   tryCatch({
     output_json = vis_layout(input_data$text, input_data$metadata,
                              service,
-                             max_clusters=MAX_CLUSTERS, add_stop_words=ADDITIONAL_STOP_WORDS,
-                             lang=LANGUAGE$name,
+                             max_clusters=MAX_CLUSTERS,
                              taxonomy_separator=taxonomy_separator,
                              vis_type=vis_type, list_size = params$list_size)
   }, error=function(err){
