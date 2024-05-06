@@ -1,6 +1,6 @@
 var data_config = {
   tag: "visualization",
-  mode: "local_files",
+  mode: "search_repos",
   input_format: "json",
 
   service: "tomegg",
@@ -9,7 +9,7 @@ var data_config = {
   bubble_max_scale: 1,
   paper_min_scale: 1,
   paper_max_scale: 1,
-
+  serverUrl: "http://localhost:3002/atlas/users/1/maps",
   title: "",
   base_unit: "citations",
   use_area_uri: true,
@@ -17,7 +17,7 @@ var data_config = {
   preview_type: "pdf",
   sort_options: ["relevance", "title", "authors", "year"],
   is_force_areas: true,
-  language: "eng_tomegg",
+  language: "eng",
   area_force_alpha: 0.02,
   show_list: true,
   content_based: true,

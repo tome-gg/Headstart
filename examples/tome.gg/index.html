@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-    <!-- <base href="http://localhost:8080/tome.gg/index.html"> -->
+    <!-- <base href="http://localhost:8080/tome.gg/"> -->
     <base href="https://map.tome.gg/">
 
     <script type="text/javascript" src="./data-config_base.js"></script>
@@ -83,32 +83,18 @@
 
         data_config.credit_embed = true;
     </script>
-
     <link rel="stylesheet" href="./css/main.css">
     <script>
         data_config.files = [{
             title: "software engineering apprenticeship",
-            //title: "calcium",
-            //title: "production",
-            //title: "digital education",
-            //title: "fake news",
-            //title: "dotcom",
-            //title: "cognitive dissonance",
-            // file: "./data/digital-education.json",
-            file: "./data/tomegg.json",
-            //file: "./data/calcium.json",
-            //file: "./data/production.json",
-            //file: "./data/digital-education-sg.json",
-            //file: "./data/fake-news-sg.json",
-            //file: "./data/dotcom-sg.json",
-            //file: "./data/cognitive-dissonance.json"
-            // other attributes:
+            file: "https://api.tome.gg/atlas/users/1/maps?",
             is_streamgraph: false, // set true for streamgraph data
             show_area: true, // set false for streamgraph data
         }]
+        data_config.mode = "search_repos";
         data_config.is_streamgraph = data_config.files[0].is_streamgraph;
         data_config.show_area = data_config.files[0].show_area;
-        data_config.server_url = window.location.href.replace(/[^/]*$/, '') + "./headstart/server/";
+        data_config.server_url = "https://api.tome.gg/atlas/users/1/maps?";
     </script>
 </body>
 
